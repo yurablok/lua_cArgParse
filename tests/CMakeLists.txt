@@ -97,4 +97,5 @@ set(FILES
 )
 add_executable(${PROJECT_NAME} ${FILES})
 add_dependencies(${PROJECT_NAME} lua)
+target_include_directories(lua_cArgParse PRIVATE ${CMAKE_HOME_DIRECTORY}/../lua)
 target_link_libraries(lua_cArgParse lua)

@@ -26,6 +26,7 @@
 // License: BSL-1.0
 // https://github.com/yurablok/lua_cArgParse
 // History:
+// v0.2 23-Jul-20   Added std::map support.
 // v0.1 21-Jul-20   First release.
 
 #pragma once
@@ -110,6 +111,11 @@ template <typename>
 struct is_vector : std::false_type {};
 template <typename T>
 struct is_vector<std::vector<T>> : std::true_type {};
+
+template <typename>
+struct is_map : std::false_type {};
+template <typename key_t, typename value_t>
+struct is_map<std::map<key_t, value_t>> : std::true_type {};
 
 template <typename T>
 struct always_false : std::false_type {};
@@ -356,6 +362,97 @@ bool processVector(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
     return ok;
 }
 
+template <typename key_t, typename value_t, typename res_t>
+bool processMap(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
+    if (lua_type(meta.lua, meta.argIdx) != LUA_TTABLE) {
+        if (!quietInit) {
+            *meta.errorStr = "a table expected at arg ";
+            *meta.errorStr += std::to_string(meta.argIdx);
+            meta.argIdx = -1;
+        }
+        return false;
+    }
+    bool ok = true;
+    lua_pushnil(meta.lua);
+    std::map<key_t, value_t> map;
+    bool quiet = quietInit;
+    while (lua_next(meta.lua, -2) != 0) {
+        if (!ok) {
+            lua_pop(meta.lua, 1);
+            continue;
+        }
+        do {
+            // key at -2 and value at -1
+            LuaCArgParseMeta parseMeta;
+            parseMeta.lua = meta.lua;
+            parseMeta.errorStr = meta.errorStr;
+            parseMeta.argIdx = -2;
+            key_t key;
+            if constexpr (std::is_integral_v<key_t>) {
+                ok = processInteger<key_t>(parseMeta, key, quiet);
+            }
+            else if constexpr (std::is_floating_point_v<key_t>) {
+                ok = processFloat<key_t>(parseMeta, key, quiet);
+            }
+            else if constexpr (std::is_same_v<key_t, std::string>) {
+                ok = processString(parseMeta, key, quiet);
+            }
+            else {
+                static_assert(always_false<key_t>::value, "prohibited combination");
+            }
+            // If in variant && error && first iteration.
+            if (quietInit && !ok && map.empty()) {
+                // Revert.
+                lua_settable(meta.lua, -3);
+                return false;
+            }
+            if (ok) {
+                parseMeta.argIdx = -1;
+                value_t value;
+                if constexpr (std::is_integral_v<value_t>) {
+                    ok = processInteger<value_t>(parseMeta, value, quiet);
+                }
+                else if constexpr (std::is_floating_point_v<value_t>) {
+                    ok = processFloat<value_t>(parseMeta, value, quiet);
+                }
+                else if constexpr (std::is_same_v<value_t, std::string>) {
+                    ok = processString(parseMeta, value, quiet);
+                }
+                else if constexpr (is_optional<value_t>::value) {
+                    static_assert(always_false<value_t>::value, "optional is not allowed in map");
+                }
+                else if constexpr (is_variant<value_t>::value) {
+                    static_assert(always_false<value_t>::value, "variant is not allowed in map");
+                }
+                else if constexpr (is_tuple<value_t>::value) {
+                    static_assert(always_false<value_t>::value, "tuple is not allowed in map");
+                }
+                else {
+                    static_assert(always_false<value_t>::value, "prohibited combination");
+                }
+                // If in variant && error && first iteration.
+                if (quietInit && !ok && map.empty()) {
+                    // Revert.
+                    lua_settable(meta.lua, -3);
+                    return false;
+                }
+                if (ok) {
+                    map[key] = std::move(value);
+                }
+            }
+            quiet = false;
+        } while (false);
+        // Remove the value with keeping the key for the next iteration.
+        lua_pop(meta.lua, 1);
+    }
+    if (!meta.errorStr->empty()) {
+        meta.argIdx = -1;
+        return false;
+    }
+    res = std::move(map);
+    return ok;
+}
+
 struct VariantVisitor {
     LuaCArgParseMeta* meta = nullptr;
     bool success = false;
@@ -382,7 +479,15 @@ struct VariantVisitor {
         else if constexpr (is_vector<T>::value) {
             success = processVector<typename T::value_type>(*meta, arg, true);
             if (meta->argIdx == -1) {
-                // An error, abort process.
+                // Error, abort processing.
+                return true;
+            }
+        }
+        else if constexpr (is_map<T>::value) {
+            success = processMap<typename T::key_type, typename T::mapped_type>(
+                *meta, arg, true);
+            if (meta->argIdx == -1) {
+                // Error, abort processing.
                 return true;
             }
         }
@@ -440,6 +545,10 @@ struct TupleVisitor {
         }
         else if constexpr (is_vector<T>::value) {
             return processVector<typename T::value_type>(*meta, arg, false);
+        }
+        else if constexpr (is_map<T>::value) {
+            return processMap<typename T::key_type, typename T::mapped_type>(
+                *meta, arg, false);
         }
         else {
             static_assert(always_false<T>::value, "prohibited combination");

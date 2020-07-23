@@ -514,6 +514,90 @@ int main() {
 
     // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
+    struct TestBasicMap {
+        static int32_t test(lua_State* lua) {
+            std::tuple<std::map<std::string, std::string>> args;
+            std::string errorStr;
+            if (!lua::cArgParse(lua, args, errorStr)) {
+                luaL_error(lua, errorStr.c_str());
+                return 0;
+            }
+            auto& map = std::get<0>(args);
+            if (map.size() != 2) {
+                luaL_error(lua, "map.size() != 2");
+                return 0;
+            }
+            if (map["str"] != "123") {
+                luaL_error(lua, "map[\"str\"] != \"123\"");
+                return 0;
+            }
+            if (map["rts"] != "456") {
+                luaL_error(lua, "map[\"rts\"] != \"456\"");
+                return 0;
+            }
+            return 0;
+        }
+    };
+    lua_register(lua, "test", TestBasicMap::test);
+    assert(luaL_dostring(lua, "test({ [\"str\"] = \"123\", [\"rts\"] = \"456\" })") == LUA_OK);
+
+    assert(luaL_dostring(lua, "test({ \"123\" })") != LUA_OK);
+    assert(contains((lua_tostring(lua, -1)), "a string expected at arg -2"));
+
+    assert(luaL_dostring(lua, "test({ [\"str\"] = 123 })") != LUA_OK);
+    assert(contains((lua_tostring(lua, -1)), "a string expected at arg -1"));
+
+    assert(luaL_dostring(lua, "test(123)") != LUA_OK);
+    assert(contains((lua_tostring(lua, -1)), "a table expected at arg 1"));
+
+    // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    struct TestMapOrVector {
+        static int32_t test(lua_State* lua) {
+            std::variant<std::map<std::string, int32_t>, std::vector<int32_t>> args;
+            std::string errorStr;
+            if (!lua::cArgParse(lua, args, errorStr)) {
+                luaL_error(lua, errorStr.c_str());
+                return 0;
+            }
+            switch (args.index()) {
+            case 0: {
+                auto& map = std::get<0>(args);
+                if (map.size() != 1) {
+                    luaL_error(lua, "map.size() != 1");
+                    return 0;
+                }
+                if (map["str"] != 123) {
+                    luaL_error(lua, "map[\"str\"] != 123");
+                    return 0;
+                }
+                break;
+            }
+            case 1: {
+                auto& vec = std::get<1>(args);
+                if (vec.size() != 1) {
+                    luaL_error(lua, "vec.size() != 1");
+                    return 0;
+                }
+                if (vec[0] != 456) {
+                    luaL_error(lua, "vec[0] != 456");
+                    return 0;
+                }
+                break;
+            }
+            }
+            return 0;
+        }
+    };
+    lua_register(lua, "test", TestMapOrVector::test);
+    assert(luaL_dostring(lua, "test({ [\"str\"] = 123 })") == LUA_OK);
+    assert(luaL_dostring(lua, "test({ 456 })") == LUA_OK);
+
+    assert(luaL_dostring(lua, "test(123)") != LUA_OK);
+    assert(contains((lua_tostring(lua, -1)), "no suitable variant"));
+
+    // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
     lua_close(lua);
     std::cout << "success" << std::endl;
     return 0;

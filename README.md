@@ -36,7 +36,7 @@ More examples can be found in [tests/test.cpp](https://github.com/yurablok/lua_c
 - `(u)int(8|16|32|64)_t`, `float`, `double`
 - `std::string`
 - `std::vector` (cannot contain: `std::optional`, `std::tuple`, `std::variant`)
-- TODO: `std::map`
+- `std::map` (cannot contain: `std::optional`, `std::tuple`, `std::variant`)
 - TODO: `std::tuple` in `std::tuple`
 - TODO: maybe `std::tuple` in `std::vector` if `std::vector` not in `std::variant`
 - TODO: use of Reflection far in the future

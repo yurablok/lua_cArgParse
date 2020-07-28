@@ -26,6 +26,8 @@
 // License: BSL-1.0
 // https://github.com/yurablok/lua_cArgParse
 // History:
+// v0.3 28-Jul-20   Added std::vector in std::map support.
+//                  Added std::variant in std::vector and in std::map support.
 // v0.2 23-Jul-20   Added std::map support.
 // v0.1 21-Jul-20   First release.
 
@@ -134,7 +136,7 @@ bool processInteger(LuaCArgParseMeta& meta, res_t& res, const bool quiet) {
         if (!quiet) {
             *meta.errorStr = "an integer expected at arg ";
             *meta.errorStr += std::to_string(meta.argIdx);
-            meta.argIdx = -1;
+            meta.argIdx = INT32_MIN;
         }
         return false;
     }
@@ -153,7 +155,7 @@ bool processInteger(LuaCArgParseMeta& meta, res_t& res, const bool quiet) {
             *meta.errorStr += "int";
             *meta.errorStr += std::to_string(sizeof(arg_t) * 8);
             *meta.errorStr += "_t range";
-            meta.argIdx = -1;
+            meta.argIdx = INT32_MIN;
         }
         return false;
     }
@@ -168,7 +170,7 @@ bool processFloat(LuaCArgParseMeta& meta, res_t& res, const bool quiet) {
         if (!quiet) {
             *meta.errorStr = "a number expected at arg ";
             *meta.errorStr += std::to_string(meta.argIdx);
-            meta.argIdx = -1;
+            meta.argIdx = INT32_MIN;
         }
         return false;
     }
@@ -188,7 +190,7 @@ bool processFloat(LuaCArgParseMeta& meta, res_t& res, const bool quiet) {
                 *meta.errorStr += "double";
             }
             *meta.errorStr += " range";
-            meta.argIdx = -1;
+            meta.argIdx = INT32_MIN;
         }
         return false;
     }
@@ -202,7 +204,7 @@ bool processString(LuaCArgParseMeta& meta, res_t& res, const bool quiet) {
         if (!quiet) {
             *meta.errorStr = "a string expected at arg ";
             *meta.errorStr += std::to_string(meta.argIdx);
-            meta.argIdx = -1;
+            meta.argIdx = INT32_MIN;
         }
         return false;
     }
@@ -212,7 +214,7 @@ bool processString(LuaCArgParseMeta& meta, res_t& res, const bool quiet) {
         if (!quiet) {
             *meta.errorStr = "a string expected at arg ";
             *meta.errorStr += std::to_string(meta.argIdx);
-            meta.argIdx = -1;
+            meta.argIdx = INT32_MIN;
         }
         return false;
     }
@@ -256,7 +258,7 @@ bool processVector(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
         if (!quietInit) {
             *meta.errorStr = "a table expected at arg ";
             *meta.errorStr += std::to_string(meta.argIdx);
-            meta.argIdx = -1;
+            meta.argIdx = INT32_MIN;
         }
         return false;
     }
@@ -309,11 +311,11 @@ bool processVector(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
             else if constexpr (std::is_same_v<arg_t, std::string>) {
                 ok = processString(valueMeta, arg, quiet);
             }
+            else if constexpr (is_variant<arg_t>::value) {
+                ok = processVariant(valueMeta, arg);
+            }
             else if constexpr (is_optional<arg_t>::value) {
                 static_assert(always_false<arg_t>::value, "optional is not allowed in vector");
-            }
-            else if constexpr (is_variant<arg_t>::value) {
-                static_assert(always_false<arg_t>::value, "variant is not allowed in vector");
             }
             else if constexpr (is_tuple<arg_t>::value) {
                 static_assert(always_false<arg_t>::value, "tuple is not allowed in vector");
@@ -336,7 +338,7 @@ bool processVector(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
         lua_pop(meta.lua, 1);
     }
     if (!meta.errorStr->empty()) {
-        meta.argIdx = -1;
+        meta.argIdx = INT32_MIN;
         return false;
     }
     std::vector<arg_t> vector;
@@ -354,7 +356,7 @@ bool processVector(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
         ok = false;
     }
     if (!ok) {
-        meta.argIdx = -1;
+        meta.argIdx = INT32_MIN;
     }
     else {
         res = std::move(vector);
@@ -368,7 +370,7 @@ bool processMap(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
         if (!quietInit) {
             *meta.errorStr = "a table expected at arg ";
             *meta.errorStr += std::to_string(meta.argIdx);
-            meta.argIdx = -1;
+            meta.argIdx = INT32_MIN;
         }
         return false;
     }
@@ -418,11 +420,14 @@ bool processMap(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
                 else if constexpr (std::is_same_v<value_t, std::string>) {
                     ok = processString(parseMeta, value, quiet);
                 }
-                else if constexpr (is_optional<value_t>::value) {
-                    static_assert(always_false<value_t>::value, "optional is not allowed in map");
+                else if constexpr (is_vector<value_t>::value) {
+                    ok = processVector<typename value_t::value_type>(parseMeta, value, quiet);
                 }
                 else if constexpr (is_variant<value_t>::value) {
-                    static_assert(always_false<value_t>::value, "variant is not allowed in map");
+                    ok = processVariant(parseMeta, value);
+                }
+                else if constexpr (is_optional<value_t>::value) {
+                    static_assert(always_false<value_t>::value, "optional is not allowed in map");
                 }
                 else if constexpr (is_tuple<value_t>::value) {
                     static_assert(always_false<value_t>::value, "tuple is not allowed in map");
@@ -446,7 +451,7 @@ bool processMap(LuaCArgParseMeta& meta, res_t& res, const bool quietInit) {
         lua_pop(meta.lua, 1);
     }
     if (!meta.errorStr->empty()) {
-        meta.argIdx = -1;
+        meta.argIdx = INT32_MIN;
         return false;
     }
     res = std::move(map);
@@ -478,7 +483,7 @@ struct VariantVisitor {
         }
         else if constexpr (is_vector<T>::value) {
             success = processVector<typename T::value_type>(*meta, arg, true);
-            if (meta->argIdx == -1) {
+            if (meta->argIdx == INT32_MIN) {
                 // Error, abort processing.
                 return true;
             }
@@ -486,7 +491,7 @@ struct VariantVisitor {
         else if constexpr (is_map<T>::value) {
             success = processMap<typename T::key_type, typename T::mapped_type>(
                 *meta, arg, true);
-            if (meta->argIdx == -1) {
+            if (meta->argIdx == INT32_MIN) {
                 // Error, abort processing.
                 return true;
             }
@@ -523,7 +528,7 @@ struct TupleVisitor {
         if (isOnlyOptionalAllowed) {
             if constexpr (!is_optional<T>::value) {
                 *meta->errorStr = "optional must be last";
-                meta->argIdx = -1;
+                meta->argIdx = INT32_MIN;
                 return false;
             }
         }

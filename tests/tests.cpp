@@ -40,7 +40,7 @@
 
 bool contains(const std::string_view source, const std::string_view pattern) {
     if (source.find(pattern) == std::string_view::npos) {
-        std::cout << source << std::endl;
+        //std::cout << source << std::endl;
         return false;
     }
     return true;
@@ -595,6 +595,114 @@ int main() {
 
     assert(luaL_dostring(lua, "test(123)") != LUA_OK);
     assert(contains((lua_tostring(lua, -1)), "no suitable variant"));
+
+    // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    struct TestVectorInMapInVariant {
+        static int32_t test(lua_State* lua) {
+            std::variant<
+                std::map<std::string, std::vector<int64_t>>,
+                std::map<std::string, std::vector<double>>
+            > args;
+            std::string errorStr;
+            if (!lua::cArgParse(lua, args, errorStr)) {
+                luaL_error(lua, errorStr.c_str());
+                return 0;
+            }
+            switch (args.index()) {
+            case 0: {
+                auto& map = std::get<0>(args);
+                if (map.size() != 2) {
+                    luaL_error(lua, "map.size() != 2");
+                    return 0;
+                }
+                if (map["123"] != std::vector<int64_t>({ 1, 2, 3 })) {
+                    luaL_error(lua, "map[\"123\"] != { 1, 2, 3 }");
+                    return 0;
+                }
+                if (map["456"] != std::vector<int64_t>({ 4, 5, 6 })) {
+                    luaL_error(lua, "map[\"456\"] != { 4, 5, 6 }");
+                    return 0;
+                }
+                break;
+            }
+            case 1: {
+                auto& map = std::get<1>(args);
+                if (map.size() != 2) {
+                    luaL_error(lua, "map.size() != 2");
+                    return 0;
+                }
+                if (map["123"] != std::vector<double>({ 1, 2, 3 })) {
+                    luaL_error(lua, "map[\"123\"] != { 1, 2, 3 }");
+                    return 0;
+                }
+                if (map["456"] != std::vector<double>({ 4, 5, 6 })) {
+                    luaL_error(lua, "map[\"456\"] != { 4, 5, 6 }");
+                    return 0;
+                }
+                break;
+            }
+            }
+            return 0;
+        }
+    };
+    lua_register(lua, "test", TestVectorInMapInVariant::test);
+    assert(luaL_dostring(lua, "test({"
+        "[\"123\"] = { 1.0, 2.0, 3.0 },"
+        "[\"456\"] = { 4.0, 5.0, 6.0 }"
+    "})") == LUA_OK);
+    assert(luaL_dostring(lua, "test({"
+        "[\"123\"] = { 1, 2, 3 },"
+        "[\"456\"] = { 4, 5, 6 }"
+    "})") == LUA_OK);
+
+    assert(luaL_dostring(lua, "test({"
+        "[\"123\"] = { 1.0, 2.0, 3.0 },"
+        "[\"456\"] = { 4, 5, 6 }"
+    "})") != LUA_OK);
+    assert(contains((lua_tostring(lua, -1)), "a number expected at arg -1")
+        || contains((lua_tostring(lua, -1)), "an integer expected at arg -1"));
+
+    // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    struct TestVectorInVariantInMap {
+        static int32_t test(lua_State* lua) {
+            std::tuple<std::map<std::string, std::variant<
+                std::vector<int64_t>, std::vector<double>
+            >>> args;
+            std::string errorStr;
+            if (!lua::cArgParse(lua, args, errorStr)) {
+                luaL_error(lua, errorStr.c_str());
+                return 0;
+            }
+            auto& map = std::get<0>(args);
+            if (map.size() != 2) {
+                luaL_error(lua, "map.size() != 2");
+                return 0;
+            }
+            if (std::get<0>(map["123"]) != std::vector<int64_t>({ 1, 2, 3 })) {
+                luaL_error(lua, "map[\"123\"] != { 1, 2, 3 }");
+                return 0;
+            }
+            if (std::get<1>(map["456"]) != std::vector<double>({ 4, 5, 6 })) {
+                luaL_error(lua, "map[\"456\"] != { 4, 5, 6 }");
+                return 0;
+            }
+            return 0;
+        }
+    };
+    lua_register(lua, "test", TestVectorInVariantInMap::test);
+    assert(luaL_dostring(lua, "test({"
+        "[\"123\"] = { 1, 2, 3 },"
+        "[\"456\"] = { 4.0, 5.0, 6.0 }"
+    "})") == LUA_OK);
+
+    assert(luaL_dostring(lua, "test({"
+        "[\"123\"] = { 1, 2.0, 3 },"
+        "[\"456\"] = { 4.0, 5, 6.0 }"
+    "})") != LUA_OK);
+    assert(contains((lua_tostring(lua, -1)), "a number expected at arg -1")
+        || contains((lua_tostring(lua, -1)), "an integer expected at arg -1"));
 
     // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
